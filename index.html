@@ -232,9 +232,28 @@
       <button onclick="window.location.reload()" style="background: var(--danger);">
         重新开始游戏
       </button>
+
+    <button id="deleteAllRoomsBtn" style="background:#991B1B;">
+  删除所有房间
+</button>
+    
     </div>
   </div>
 
+document.getElementById("deleteAllRoomsBtn").addEventListener("click", async () => {
+  if (!confirm("确定要删除所有房间吗？这个动作不能撤销。")) return;
+
+  try {
+    await remove(ref(db, "rooms"));
+    alert("所有房间已删除。");
+    window.location.reload();
+  } catch (err) {
+    console.error(err);
+    alert("删除所有房间失败：" + err.message);
+  }
+});
+
+  
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import {
