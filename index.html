@@ -11,6 +11,7 @@
       --success: #10B981;
       --danger: #EF4444;
       --gray: #6B7280;
+      --gold: #F59E0B;
     }
 
     body {
@@ -23,7 +24,7 @@
     }
 
     .card {
-      max-width: 520px;
+      max-width: 540px;
       margin: 20px auto;
       background: white;
       padding: 25px;
@@ -79,6 +80,20 @@
       letter-spacing: 3px;
       margin: 15px 0;
       border: 1px dashed var(--primary);
+    }
+
+    .round-box {
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+
+    .host-name {
+      color: var(--gold);
+      font-weight: bold;
+      font-size: 18px;
     }
 
     .grid {
@@ -137,6 +152,21 @@
       color: #065F46;
     }
 
+    .badge.host {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+
+    .badge.score {
+      background: #E0E7FF;
+      color: #3730A3;
+    }
+
+    .badge.plus {
+      background: #D1FAE5;
+      color: #065F46;
+    }
+
     .small-note {
       color: var(--gray);
       font-size: 14px;
@@ -176,30 +206,36 @@
       <p>把这个房间代码发送给其他玩家：</p>
       <div class="room-id-box" id="hostRoomIdDisplay">-----</div>
 
-      <hr />
-
-      <h3>房东请选择你的情绪卡：</h3>
-      <div class="grid" id="hostEmotionsGrid"></div>
-
-      <button id="hostLockBtn" disabled>
-        房东确认锁定
-      </button>
-
-      <div id="hostLockStatusMsg" class="hidden" style="margin-top:10px;font-weight:bold;color:var(--success);">
-        ✓ 房东已锁定
+      <div class="round-box">
+        <div>第 <span id="hostRoundNumber">1</span> 回合</div>
+        <div>本轮主持人：</div>
+        <div class="host-name" id="hostCurrentRoundHost">---</div>
       </div>
 
       <hr />
 
-      <h3>已加入的玩家：</h3>
+      <h3>请选择你的情绪卡：</h3>
+      <div class="grid" id="hostEmotionsGrid"></div>
+
+      <button id="hostLockBtn" disabled>
+        确认锁定
+      </button>
+
+      <div id="hostLockStatusMsg" class="hidden" style="margin-top:10px;font-weight:bold;color:var(--success);">
+        ✓ 已锁定
+      </div>
+
+      <hr />
+
+      <h3>玩家与分数：</h3>
       <div id="hostPlayerList"></div>
 
       <button id="revealBtn" style="background: var(--success); margin-top:20px;" disabled>
-        结束猜测，揭晓答案！
+        结束猜测，揭晓并计分！
       </button>
 
       <div class="small-note">
-        所有人，包括房东，都锁定后才可以揭晓。
+        所有人都锁定后才可以揭晓。猜中本轮主持人情绪的玩家 +1 分。
       </div>
 
       <button id="resetBtn" style="background: var(--danger);">
@@ -208,6 +244,12 @@
     </div>
 
     <div id="playerScreen" class="hidden">
+      <div class="round-box">
+        <div>第 <span id="playerRoundNumber">1</span> 回合</div>
+        <div>本轮主持人：</div>
+        <div class="host-name" id="playerCurrentRoundHost">---</div>
+      </div>
+
       <p>
         你好
         <span id="playerGreeting" style="font-weight:bold; color:var(--primary);"></span>，
@@ -221,16 +263,29 @@
       </button>
 
       <div id="lockStatusMsg" style="margin-top:10px; font-weight:bold; color:var(--success);" class="hidden">
-        ✓ 已锁定！请等待房东揭晓。
+        ✓ 已锁定！请等待揭晓。
       </div>
     </div>
 
     <div id="revealScreen" class="hidden">
-      <h2>🎉 游戏结果揭晓 🎉</h2>
+      <h2>🎉 第 <span id="revealRoundNumber">1</span> 回合结果 🎉</h2>
+
+      <div class="round-box">
+        <div>本轮主持人：</div>
+        <div class="host-name" id="revealRoundHost">---</div>
+        <div class="small-note">
+          与主持人选择相同情绪的玩家获得 +1 分。
+        </div>
+      </div>
+
       <div id="finalResultsList" style="margin: 20px 0;"></div>
 
+      <button id="nextRoundBtn" class="hidden" style="background: var(--success);">
+        下一回合
+      </button>
+
       <button onclick="window.location.reload()" style="background: var(--danger);">
-        重新开始游戏
+        离开 / 重新载入
       </button>
     </div>
   </div>
@@ -272,10 +327,9 @@
     let playerId = "";
     let myName = "";
     let selectedEmotion = "";
-    let hostSelectedEmotion = "";
-    let isHost = false;
+    let isFacilitator = false;
     let isLocked = false;
-    let hostLocked = false;
+    let currentRoundSeen = 0;
 
     const setupScreen = document.getElementById("setupScreen");
     const hostScreen = document.getElementById("hostScreen");
@@ -312,6 +366,18 @@
         .replaceAll("'", "&#039;");
     }
 
+    function getSortedPlayerEntries(players) {
+      return Object.entries(players).sort((a, b) => {
+        const aOrder = a[1].joinedOrder || 0;
+        const bOrder = b[1].joinedOrder || 0;
+        return aOrder - bOrder;
+      });
+    }
+
+    function getPlayerNameById(players, id) {
+      return players[id]?.name || "未知玩家";
+    }
+
     async function createUniqueRoom() {
       let newRoomId;
       let exists = true;
@@ -328,13 +394,14 @@
     document.getElementById("createRoomBtn").addEventListener("click", async () => {
       try {
         myName = getPlayerName("房东");
-        isHost = true;
+        isFacilitator = true;
         roomId = await createUniqueRoom();
 
         setStatus("正在创建房间...");
 
         await set(ref(db, "rooms/" + roomId), {
           status: "waiting",
+          currentRound: 1,
           createdAt: serverTimestamp()
         });
 
@@ -345,16 +412,19 @@
           name: myName + " (房东)",
           emotion: "",
           locked: false,
-          isHost: true,
-          joinedAt: serverTimestamp()
+          score: 0,
+          isFacilitator: true,
+          joinedAt: serverTimestamp(),
+          joinedOrder: Date.now()
         });
 
         await update(ref(db, "rooms/" + roomId), {
-          hostId: playerId
+          facilitatorId: playerId,
+          currentHostId: playerId
         });
 
         document.getElementById("hostRoomIdDisplay").innerText = roomId;
-        buildHostEmotionsGridUI();
+        buildChoiceGrid("hostEmotionsGrid", "hostLockBtn");
         showScreen(hostScreen);
         listenToRoom();
       } catch (err) {
@@ -391,7 +461,7 @@
         const room = roomSnap.val();
 
         if (room.status === "revealed") {
-          alert("这个房间已经揭晓答案了，请创建新房间。");
+          alert("这一回合已经揭晓了，请等下一回合再加入。");
           setStatus("");
           return;
         }
@@ -403,12 +473,14 @@
           name: myName,
           emotion: "",
           locked: false,
-          isHost: false,
-          joinedAt: serverTimestamp()
+          score: 0,
+          isFacilitator: false,
+          joinedAt: serverTimestamp(),
+          joinedOrder: Date.now()
         });
 
         document.getElementById("playerGreeting").innerText = myName;
-        buildEmotionsGridUI();
+        buildChoiceGrid("emotionsGrid", "lockBtn");
         showScreen(playerScreen);
         listenToRoom();
       } catch (err) {
@@ -427,45 +499,68 @@
 
         const room = snapshot.val();
         const players = room.players || {};
+        const roundNumber = room.currentRound || 1;
+        const roundHostName = getPlayerNameById(players, room.currentHostId);
 
-        if (isHost) {
-          updateHostPlayerListUI(players);
+        if (roundNumber !== currentRoundSeen && room.status === "waiting") {
+          currentRoundSeen = roundNumber;
+          resetLocalRoundUI();
 
-          if (players[playerId] && players[playerId].locked) {
-            hostLocked = true;
-            document.getElementById("hostLockBtn").disabled = true;
-            document.getElementById("hostLockStatusMsg").classList.remove("hidden");
-
-            document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(btn => {
-              if (!btn.classList.contains("selected")) {
-                btn.disabled = true;
-                btn.style.opacity = 0.5;
-              }
-            });
+          if (isFacilitator) {
+            buildChoiceGrid("hostEmotionsGrid", "hostLockBtn");
+            showScreen(hostScreen);
+          } else {
+            buildChoiceGrid("emotionsGrid", "lockBtn");
+            showScreen(playerScreen);
           }
         }
 
+        updateRoundLabels(roundNumber, roundHostName);
+
+        if (isFacilitator) {
+          updateHostPlayerListUI(players, room.currentHostId);
+        }
+
         if (room.status === "revealed") {
-          showFinalRevealUI(players);
+          showFinalRevealUI(room);
         }
       });
     }
 
-    function updateHostPlayerListUI(players) {
+    function updateRoundLabels(roundNumber, roundHostName) {
+      document.getElementById("hostRoundNumber").innerText = roundNumber;
+      document.getElementById("playerRoundNumber").innerText = roundNumber;
+      document.getElementById("revealRoundNumber").innerText = roundNumber;
+
+      document.getElementById("hostCurrentRoundHost").innerText = roundHostName;
+      document.getElementById("playerCurrentRoundHost").innerText = roundHostName;
+      document.getElementById("revealRoundHost").innerText = roundHostName;
+    }
+
+    function updateHostPlayerListUI(players, currentHostId) {
       const listContainer = document.getElementById("hostPlayerList");
       listContainer.innerHTML = "";
 
       let lockedCount = 0;
       const totalPlayers = Object.keys(players).length;
 
-      Object.values(players).forEach(p => {
+      getSortedPlayerEntries(players).forEach(([id, p]) => {
         if (p.locked) lockedCount++;
 
         const item = document.createElement("div");
         item.classList.add("player-list-item");
 
+        const hostBadge = id === currentHostId
+          ? `<span class="badge host">本轮主持</span>`
+          : "";
+
         item.innerHTML = `
-          <span>👤 <strong>${escapeHtml(p.name)}</strong></span>
+          <span>
+            👤 <strong>${escapeHtml(p.name)}</strong>
+            ${hostBadge}
+            <br>
+            <span class="badge score">分数：${p.score || 0}</span>
+          </span>
           <span class="badge ${p.locked ? "ready" : "waiting"}">
             ${p.locked ? "✓ 已选择" : "⏳ 选择中"}
           </span>
@@ -478,59 +573,8 @@
         totalPlayers === 0 || lockedCount < totalPlayers;
     }
 
-    function buildHostEmotionsGridUI() {
-      const grid = document.getElementById("hostEmotionsGrid");
-      grid.innerHTML = "";
-
-      emotionsList.forEach((emotion, index) => {
-        const btn = document.createElement("button");
-        btn.classList.add("emotion-btn");
-        btn.innerText = `${index + 1}. ${emotion}`;
-
-        btn.addEventListener("click", () => {
-          if (hostLocked) return;
-
-          document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(b => {
-            b.classList.remove("selected");
-          });
-
-          btn.classList.add("selected");
-          hostSelectedEmotion = emotion;
-          document.getElementById("hostLockBtn").disabled = false;
-        });
-
-        grid.appendChild(btn);
-      });
-    }
-
-    document.getElementById("hostLockBtn").addEventListener("click", async () => {
-      if (!hostSelectedEmotion || hostLocked) return;
-
-      try {
-        await update(ref(db, `rooms/${roomId}/players/${playerId}`), {
-          emotion: hostSelectedEmotion,
-          locked: true,
-          lockedAt: serverTimestamp()
-        });
-
-        hostLocked = true;
-        document.getElementById("hostLockBtn").disabled = true;
-        document.getElementById("hostLockStatusMsg").classList.remove("hidden");
-
-        document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(btn => {
-          if (!btn.classList.contains("selected")) {
-            btn.disabled = true;
-            btn.style.opacity = 0.5;
-          }
-        });
-      } catch (err) {
-        console.error(err);
-        alert("房东锁定失败：" + err.message);
-      }
-    });
-
-    function buildEmotionsGridUI() {
-      const grid = document.getElementById("emotionsGrid");
+    function buildChoiceGrid(gridId, lockBtnId) {
+      const grid = document.getElementById(gridId);
       grid.innerHTML = "";
 
       emotionsList.forEach((emotion, index) => {
@@ -541,20 +585,20 @@
         btn.addEventListener("click", () => {
           if (isLocked) return;
 
-          document.querySelectorAll("#emotionsGrid .emotion-btn").forEach(b => {
+          document.querySelectorAll(`#${gridId} .emotion-btn`).forEach(b => {
             b.classList.remove("selected");
           });
 
           btn.classList.add("selected");
           selectedEmotion = emotion;
-          document.getElementById("lockBtn").disabled = false;
+          document.getElementById(lockBtnId).disabled = false;
         });
 
         grid.appendChild(btn);
       });
     }
 
-    document.getElementById("lockBtn").addEventListener("click", async () => {
+    async function lockMyChoice(lockBtnId, statusMsgId, gridId) {
       if (!selectedEmotion || isLocked) return;
 
       try {
@@ -565,10 +609,10 @@
         });
 
         isLocked = true;
-        document.getElementById("lockBtn").disabled = true;
-        document.getElementById("lockStatusMsg").classList.remove("hidden");
+        document.getElementById(lockBtnId).disabled = true;
+        document.getElementById(statusMsgId).classList.remove("hidden");
 
-        document.querySelectorAll("#emotionsGrid .emotion-btn").forEach(btn => {
+        document.querySelectorAll(`#${gridId} .emotion-btn`).forEach(btn => {
           if (!btn.classList.contains("selected")) {
             btn.disabled = true;
             btn.style.opacity = 0.5;
@@ -578,17 +622,90 @@
         console.error(err);
         alert("锁定失败：" + err.message);
       }
+    }
+
+    document.getElementById("hostLockBtn").addEventListener("click", () => {
+      lockMyChoice("hostLockBtn", "hostLockStatusMsg", "hostEmotionsGrid");
+    });
+
+    document.getElementById("lockBtn").addEventListener("click", () => {
+      lockMyChoice("lockBtn", "lockStatusMsg", "emotionsGrid");
     });
 
     document.getElementById("revealBtn").addEventListener("click", async () => {
       try {
-        await update(ref(db, "rooms/" + roomId), {
-          status: "revealed",
-          revealedAt: serverTimestamp()
+        const roomSnap = await get(ref(db, "rooms/" + roomId));
+
+        if (!roomSnap.exists()) return;
+
+        const room = roomSnap.val();
+        const players = room.players || {};
+        const currentHostId = room.currentHostId;
+        const hostEmotion = players[currentHostId]?.emotion || "";
+
+        if (!hostEmotion) {
+          alert("本轮主持人还没有选择情绪。");
+          return;
+        }
+
+        const updates = {};
+        updates[`rooms/${roomId}/status`] = "revealed";
+        updates[`rooms/${roomId}/revealedAt`] = serverTimestamp();
+        updates[`rooms/${roomId}/lastHostEmotion`] = hostEmotion;
+
+        Object.entries(players).forEach(([id, p]) => {
+          const matched = id !== currentHostId && p.emotion === hostEmotion;
+
+          updates[`rooms/${roomId}/players/${id}/lastGain`] = matched ? 1 : 0;
+
+          if (matched) {
+            updates[`rooms/${roomId}/players/${id}/score`] = (p.score || 0) + 1;
+          }
         });
+
+        await update(ref(db), updates);
       } catch (err) {
         console.error(err);
         alert("揭晓失败：" + err.message);
+      }
+    });
+
+    document.getElementById("nextRoundBtn").addEventListener("click", async () => {
+      try {
+        const roomSnap = await get(ref(db, "rooms/" + roomId));
+
+        if (!roomSnap.exists()) return;
+
+        const room = roomSnap.val();
+        const players = room.players || {};
+        const entries = getSortedPlayerEntries(players);
+
+        if (entries.length === 0) return;
+
+        const currentHostIndex = entries.findIndex(([id]) => id === room.currentHostId);
+        const nextHostIndex = currentHostIndex === -1
+          ? 0
+          : (currentHostIndex + 1) % entries.length;
+
+        const nextHostId = entries[nextHostIndex][0];
+        const nextRound = (room.currentRound || 1) + 1;
+
+        const updates = {};
+        updates[`rooms/${roomId}/status`] = "waiting";
+        updates[`rooms/${roomId}/currentRound`] = nextRound;
+        updates[`rooms/${roomId}/currentHostId`] = nextHostId;
+        updates[`rooms/${roomId}/lastHostEmotion`] = "";
+
+        entries.forEach(([id]) => {
+          updates[`rooms/${roomId}/players/${id}/emotion`] = "";
+          updates[`rooms/${roomId}/players/${id}/locked`] = false;
+          updates[`rooms/${roomId}/players/${id}/lastGain`] = 0;
+        });
+
+        await update(ref(db), updates);
+      } catch (err) {
+        console.error(err);
+        alert("开始下一回合失败：" + err.message);
       }
     });
 
@@ -604,18 +721,49 @@
       }
     });
 
-    function showFinalRevealUI(players) {
+    function resetLocalRoundUI() {
+      selectedEmotion = "";
+      isLocked = false;
+
+      document.getElementById("lockBtn").disabled = true;
+      document.getElementById("hostLockBtn").disabled = true;
+
+      document.getElementById("lockStatusMsg").classList.add("hidden");
+      document.getElementById("hostLockStatusMsg").classList.add("hidden");
+    }
+
+    function showFinalRevealUI(room) {
+      const players = room.players || {};
+      const currentHostId = room.currentHostId;
+      const hostEmotion = room.lastHostEmotion || players[currentHostId]?.emotion || "";
+
       showScreen(revealScreen);
+
+      const nextRoundBtn = document.getElementById("nextRoundBtn");
+      if (isFacilitator) {
+        nextRoundBtn.classList.remove("hidden");
+      } else {
+        nextRoundBtn.classList.add("hidden");
+      }
 
       const list = document.getElementById("finalResultsList");
       list.innerHTML = "";
 
-      Object.values(players).forEach(p => {
+      getSortedPlayerEntries(players).forEach(([id, p]) => {
         const row = document.createElement("div");
         row.classList.add("player-list-item");
 
+        const isRoundHost = id === currentHostId;
+        const gained = p.lastGain === 1;
+
         row.innerHTML = `
-          <span>👤 <strong>${escapeHtml(p.name || "玩家")}</strong></span>
+          <span>
+            👤 <strong>${escapeHtml(p.name || "玩家")}</strong>
+            ${isRoundHost ? `<span class="badge host">本轮主持</span>` : ""}
+            ${gained ? `<span class="badge plus">+1</span>` : ""}
+            <br>
+            <span class="badge score">总分：${p.score || 0}</span>
+          </span>
           <span style="font-size:18px; font-weight:bold; color:var(--primary);">
             ${escapeHtml(p.emotion || "未选择")}
           </span>
