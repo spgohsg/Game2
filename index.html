@@ -240,18 +240,7 @@
     </div>
   </div>
 
-document.getElementById("deleteAllRoomsBtn").addEventListener("click", async () => {
-  if (!confirm("确定要删除所有房间吗？这个动作不能撤销。")) return;
 
-  try {
-    await remove(ref(db, "rooms"));
-    alert("所有房间已删除。");
-    window.location.reload();
-  } catch (err) {
-    console.error(err);
-    alert("删除所有房间失败：" + err.message);
-  }
-});
 
   
   <script type="module">
@@ -382,6 +371,21 @@ document.getElementById("deleteAllRoomsBtn").addEventListener("click", async () 
       }
     });
 
+document.getElementById("deleteAllRoomsBtn").addEventListener("click", async () => {
+  if (!confirm("确定要删除所有房间吗？这个动作不能撤销。")) return;
+
+  try {
+    await remove(ref(db, "rooms"));
+    alert("所有房间已删除。");
+    window.location.reload();
+  } catch (err) {
+    console.error(err);
+    alert("删除所有房间失败：" + err.message);
+  }
+});
+
+
+    
     document.getElementById("joinRoomBtn").addEventListener("click", async () => {
       try {
         myName = getPlayerName("");
