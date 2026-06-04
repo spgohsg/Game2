@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Emotion Card Game</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
-
   <style>
     :root {
       --primary: #4F46E5;
@@ -25,7 +23,7 @@
     }
 
     .card {
-      max-width: 500px;
+      max-width: 520px;
       margin: 20px auto;
       background: white;
       padding: 25px;
@@ -75,10 +73,10 @@
       background: #EEF2FF;
       padding: 10px;
       border-radius: 6px;
-      font-size: 24px;
+      font-size: 28px;
       font-weight: bold;
       color: var(--primary);
-      letter-spacing: 2px;
+      letter-spacing: 3px;
       margin: 15px 0;
       border: 1px dashed var(--primary);
     }
@@ -162,7 +160,7 @@
         — 或者 / OR —
       </div>
 
-      <input type="text" id="roomIdInput" placeholder="输入5位房间代码 / Room ID" maxlength="10" />
+      <input type="text" id="roomIdInput" placeholder="输入5位房间代码 / Room ID" maxlength="5" />
       <button id="joinRoomBtn" style="background: var(--success);">加入已有房间</button>
 
       <div id="setupStatus" class="small-note"></div>
@@ -171,13 +169,16 @@
     <div id="hostScreen" class="hidden">
       <p>把这个房间代码发送给其他玩家：</p>
       <div class="room-id-box" id="hostRoomIdDisplay">-----</div>
-      <p class="small-note">等待玩家加入...</p>
 
-      <h3>已连线的玩家名单：</h3>
+      <h3>已加入的玩家：</h3>
       <div id="hostPlayerList"></div>
 
       <button id="revealBtn" style="background: var(--success); margin-top:20px;" disabled>
         结束猜测，揭晓答案！
+      </button>
+
+      <button id="resetBtn" style="background: var(--danger);">
+        删除房间并重新开始
       </button>
     </div>
 
@@ -185,7 +186,7 @@
       <p>
         你好
         <span id="playerGreeting" style="font-weight:bold; color:var(--primary);"></span>，
-        请秘密选择一个你目前持有的情绪卡：
+        请选择一个你目前持有的情绪卡：
       </p>
 
       <div class="grid" id="emotionsGrid"></div>
@@ -209,31 +210,51 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      set,
+      update,
+      get,
+      onValue,
+      remove,
+      onDisconnect,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDEaU5Tm2lpc-fH0r9-LJdKuKSF8_h0tf8",
+      authDomain: "emo-card-game.firebaseapp.com",
+      databaseURL: "https://emo-card-game-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "emo-card-game",
+      storageBucket: "emo-card-game.firebasestorage.app",
+      messagingSenderId: "621452932692",
+      appId: "1:621452932692:web:b92c03843dc9023d42dfc1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
     const emotionsList = [
       "害怕", "焦虑", "反感", "厌恶",
       "期待", "惊讶", "开心", "接受",
       "伤心", "生气", "尴尬", "失落"
     ];
 
-    let peer = null;
-    let conn = null;
-    let connections = [];
+    let roomId = "";
+    let playerId = "";
     let myName = "";
-    let selectedEmotionIndex = null;
+    let selectedEmotion = "";
+    let isHost = false;
     let isLocked = false;
-
-    let playerData = {};
 
     const setupScreen = document.getElementById("setupScreen");
     const hostScreen = document.getElementById("hostScreen");
     const playerScreen = document.getElementById("playerScreen");
     const revealScreen = document.getElementById("revealScreen");
     const setupStatus = document.getElementById("setupStatus");
-
-    function setStatus(message) {
-      setupStatus.innerText = message || "";
-    }
 
     function showScreen(screen) {
       setupScreen.classList.add("hidden");
@@ -243,18 +264,16 @@
       screen.classList.remove("hidden");
     }
 
-    function generateRoomId() {
-      return "ROOM-" + Math.floor(10000 + Math.random() * 90000);
+    function setStatus(message) {
+      setupStatus.innerText = message || "";
     }
 
-    function normalizeRoomId(value) {
-      value = value.trim().toUpperCase();
+    function generateRoomId() {
+      return String(Math.floor(10000 + Math.random() * 90000));
+    }
 
-      if (/^\d{5}$/.test(value)) {
-        return "ROOM-" + value;
-      }
-
-      return value;
+    function generatePlayerId() {
+      return "P-" + Date.now() + "-" + Math.floor(Math.random() * 100000);
     }
 
     function getPlayerName(defaultName) {
@@ -270,182 +289,120 @@
         .replaceAll("'", "&#039;");
     }
 
-    document.getElementById("createRoomBtn").addEventListener("click", () => {
-      if (typeof Peer === "undefined") {
-        alert("PeerJS 没有成功载入。请检查网络或 CDN 是否被阻挡。");
-        return;
-      }
+    document.getElementById("createRoomBtn").addEventListener("click", async () => {
+      try {
+        myName = getPlayerName("房东");
+        isHost = true;
+        roomId = generateRoomId();
+        playerId = "HOST-" + generatePlayerId();
 
-      myName = getPlayerName("房东");
+        setStatus("正在创建房间...");
 
-      const roomId = generateRoomId();
-      const displayRoomId = roomId.replace("ROOM-", "");
-
-      showScreen(hostScreen);
-      document.getElementById("hostRoomIdDisplay").innerText = displayRoomId;
-
-      playerData[roomId] = {
-        name: myName + " (房东)",
-        emotion: null,
-        locked: false
-      };
-
-      updateHostPlayerListUI();
-
-      peer = new Peer(roomId, {
-        host: "0.peerjs.com",
-        port: 443,
-        path: "/",
-        secure: true,
-        debug: 2
-      });
-
-      peer.on("open", (id) => {
-        console.log("Room created:", id);
-      });
-
-      peer.on("connection", (connection) => {
-        connections.push(connection);
-
-        connection.on("open", () => {
-          console.log("Player connected:", connection.peer);
-        });
-
-        connection.on("data", (data) => {
-          if (!data || !data.type) return;
-
-          if (data.type === "join") {
-            playerData[connection.peer] = {
-              name: data.name || "玩家",
-              emotion: null,
-              locked: false
-            };
-
-            updateHostPlayerListUI();
-          }
-
-          if (data.type === "lock") {
-            if (!playerData[connection.peer]) {
-              playerData[connection.peer] = {
-                name: "玩家",
-                emotion: null,
-                locked: false
-              };
+        await set(ref(db, "rooms/" + roomId), {
+          status: "waiting",
+          createdAt: serverTimestamp(),
+          hostId: playerId,
+          players: {
+            [playerId]: {
+              name: myName + " (房东)",
+              emotion: "",
+              locked: false,
+              isHost: true
             }
-
-            playerData[connection.peer].emotion = data.emotion;
-            playerData[connection.peer].locked = true;
-
-            updateHostPlayerListUI();
-
-            connection.send({
-              type: "lockAccepted",
-              emotion: data.emotion
-            });
           }
         });
 
-        connection.on("close", () => {
-          connections = connections.filter(c => c.peer !== connection.peer);
-          delete playerData[connection.peer];
-          updateHostPlayerListUI();
-        });
-
-        connection.on("error", (err) => {
-          console.error("Connection error:", err);
-        });
-      });
-
-      peer.on("error", (err) => {
-        console.error("Host PeerJS error:", err);
-        alert("PeerJS 连接错误：" + err.message);
-      });
+        document.getElementById("hostRoomIdDisplay").innerText = roomId;
+        showScreen(hostScreen);
+        listenToRoom();
+      } catch (err) {
+        console.error(err);
+        alert("创建房间失败：" + err.message);
+      }
     });
 
-    document.getElementById("joinRoomBtn").addEventListener("click", () => {
-      if (typeof Peer === "undefined") {
-        alert("PeerJS 没有成功载入。请检查网络或 CDN 是否被阻挡。");
-        return;
+    document.getElementById("joinRoomBtn").addEventListener("click", async () => {
+      try {
+        myName = getPlayerName("");
+        roomId = document.getElementById("roomIdInput").value.trim();
+
+        if (!myName) {
+          alert("请先输入您的名字！");
+          return;
+        }
+
+        if (!/^[0-9]{5}$/.test(roomId)) {
+          alert("请输入5位数字房间代码！");
+          return;
+        }
+
+        setStatus("正在加入房间...");
+
+        const roomSnap = await get(ref(db, "rooms/" + roomId));
+
+        if (!roomSnap.exists()) {
+          alert("找不到这个房间，请检查代码。");
+          setStatus("");
+          return;
+        }
+
+        const room = roomSnap.val();
+
+        if (room.status === "revealed") {
+          alert("这个房间已经揭晓答案了，请创建新房间。");
+          setStatus("");
+          return;
+        }
+
+        playerId = generatePlayerId();
+
+        await set(ref(db, `rooms/${roomId}/players/${playerId}`), {
+          name: myName,
+          emotion: "",
+          locked: false,
+          isHost: false
+        });
+
+        onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).remove();
+
+        document.getElementById("playerGreeting").innerText = myName;
+        buildEmotionsGridUI();
+        showScreen(playerScreen);
+        listenToRoom();
+      } catch (err) {
+        console.error(err);
+        alert("加入房间失败：" + err.message);
       }
-
-      myName = getPlayerName("");
-      const targetRoomId = normalizeRoomId(document.getElementById("roomIdInput").value);
-
-      if (!myName) {
-        alert("请先输入您的名字！");
-        return;
-      }
-
-      if (!targetRoomId) {
-        alert("请输入房间代码！");
-        return;
-      }
-
-      setStatus("正在连接房间...");
-
-      peer = new Peer(null, {
-        host: "0.peerjs.com",
-        port: 443,
-        path: "/",
-        secure: true,
-        debug: 2
-      });
-
-      peer.on("open", () => {
-        conn = peer.connect(targetRoomId, {
-          reliable: true
-        });
-
-        conn.on("open", () => {
-          showScreen(playerScreen);
-
-          document.getElementById("playerGreeting").innerText = myName;
-
-          buildEmotionsGridUI();
-
-          conn.send({
-            type: "join",
-            name: myName
-          });
-        });
-
-        conn.on("data", (data) => {
-          if (!data || !data.type) return;
-
-          if (data.type === "lockAccepted") {
-            confirmLockUI();
-          }
-
-          if (data.type === "finalReveal") {
-            showFinalRevealUI(data.results || []);
-          }
-        });
-
-        conn.on("close", () => {
-          alert("与房东的连接已断开。");
-        });
-
-        conn.on("error", (err) => {
-          console.error("Player connection error:", err);
-          alert("连接房间失败：" + err.message);
-        });
-      });
-
-      peer.on("error", (err) => {
-        console.error("Player PeerJS error:", err);
-        alert("无法连上该房间。请检查房间代码。错误：" + err.message);
-      });
     });
 
-    function updateHostPlayerListUI() {
+    function listenToRoom() {
+      onValue(ref(db, "rooms/" + roomId), (snapshot) => {
+        if (!snapshot.exists()) {
+          alert("房间已被删除或不存在。");
+          window.location.reload();
+          return;
+        }
+
+        const room = snapshot.val();
+        const players = room.players || {};
+
+        if (isHost) {
+          updateHostPlayerListUI(players);
+        }
+
+        if (room.status === "revealed") {
+          showFinalRevealUI(players);
+        }
+      });
+    }
+
+    function updateHostPlayerListUI(players) {
       const listContainer = document.getElementById("hostPlayerList");
       listContainer.innerHTML = "";
 
       let lockedCount = 0;
 
-      for (const id in playerData) {
-        const p = playerData[id];
-
+      Object.values(players).forEach(p => {
         if (p.locked) lockedCount++;
 
         const item = document.createElement("div");
@@ -459,29 +416,10 @@
         `;
 
         listContainer.appendChild(item);
-      }
+      });
 
       document.getElementById("revealBtn").disabled = lockedCount === 0;
     }
-
-    function broadcastToPlayers(message) {
-      connections.forEach(connection => {
-        if (connection && connection.open) {
-          connection.send(message);
-        }
-      });
-    }
-
-    document.getElementById("revealBtn").addEventListener("click", () => {
-      const results = Object.values(playerData);
-
-      broadcastToPlayers({
-        type: "finalReveal",
-        results: results
-      });
-
-      showFinalRevealUI(results);
-    });
 
     function buildEmotionsGridUI() {
       const grid = document.getElementById("emotionsGrid");
@@ -489,10 +427,8 @@
 
       emotionsList.forEach((emotion, index) => {
         const btn = document.createElement("button");
-
         btn.classList.add("emotion-btn");
         btn.innerText = `${index + 1}. ${emotion}`;
-        btn.dataset.emotion = emotion;
 
         btn.addEventListener("click", () => {
           if (isLocked) return;
@@ -502,8 +438,7 @@
           });
 
           btn.classList.add("selected");
-          selectedEmotionIndex = index;
-
+          selectedEmotion = emotion;
           document.getElementById("lockBtn").disabled = false;
         });
 
@@ -511,45 +446,62 @@
       });
     }
 
-    document.getElementById("lockBtn").addEventListener("click", () => {
-      if (selectedEmotionIndex === null || isLocked) return;
+    document.getElementById("lockBtn").addEventListener("click", async () => {
+      if (!selectedEmotion || isLocked) return;
 
-      if (!conn || !conn.open) {
-        alert("尚未连接到房间，请重新加入。");
-        return;
+      try {
+        await update(ref(db, `rooms/${roomId}/players/${playerId}`), {
+          emotion: selectedEmotion,
+          locked: true
+        });
+
+        isLocked = true;
+        document.getElementById("lockBtn").disabled = true;
+        document.getElementById("lockStatusMsg").classList.remove("hidden");
+
+        document.querySelectorAll(".emotion-btn").forEach(btn => {
+          if (!btn.classList.contains("selected")) {
+            btn.disabled = true;
+            btn.style.opacity = 0.5;
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        alert("锁定失败：" + err.message);
       }
-
-      const finalChoice = emotionsList[selectedEmotionIndex];
-
-      document.getElementById("lockBtn").disabled = true;
-
-      conn.send({
-        type: "lock",
-        emotion: finalChoice
-      });
     });
 
-    function confirmLockUI() {
-      isLocked = true;
+    document.getElementById("revealBtn").addEventListener("click", async () => {
+      try {
+        await update(ref(db, "rooms/" + roomId), {
+          status: "revealed",
+          revealedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error(err);
+        alert("揭晓失败：" + err.message);
+      }
+    });
 
-      document.getElementById("lockBtn").disabled = true;
-      document.getElementById("lockStatusMsg").classList.remove("hidden");
+    document.getElementById("resetBtn").addEventListener("click", async () => {
+      if (!confirm("确定要删除这个房间并重新开始吗？")) return;
 
-      document.querySelectorAll(".emotion-btn").forEach(btn => {
-        if (!btn.classList.contains("selected")) {
-          btn.disabled = true;
-          btn.style.opacity = 0.5;
-        }
-      });
-    }
+      try {
+        await remove(ref(db, "rooms/" + roomId));
+        window.location.reload();
+      } catch (err) {
+        console.error(err);
+        alert("删除房间失败：" + err.message);
+      }
+    });
 
-    function showFinalRevealUI(results) {
+    function showFinalRevealUI(players) {
       showScreen(revealScreen);
 
       const list = document.getElementById("finalResultsList");
       list.innerHTML = "";
 
-      results.forEach(p => {
+      Object.values(players).forEach(p => {
         const row = document.createElement("div");
         row.classList.add("player-list-item");
 
