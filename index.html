@@ -142,6 +142,12 @@
       font-size: 14px;
       margin-top: 8px;
     }
+
+    hr {
+      margin: 20px 0;
+      border: 0;
+      border-top: 1px solid #E5E7EB;
+    }
   </style>
 </head>
 
@@ -152,7 +158,7 @@
     <div id="setupScreen">
       <input type="text" id="playerNameInput" placeholder="输入你的名字 / Your Name" maxlength="15" />
 
-      <hr style="margin:20px 0; border:0; border-top:1px solid #E5E7EB;" />
+      <hr />
 
       <button id="createRoomBtn">创建新房间 (我是房东)</button>
 
@@ -170,12 +176,31 @@
       <p>把这个房间代码发送给其他玩家：</p>
       <div class="room-id-box" id="hostRoomIdDisplay">-----</div>
 
+      <hr />
+
+      <h3>房东请选择你的情绪卡：</h3>
+      <div class="grid" id="hostEmotionsGrid"></div>
+
+      <button id="hostLockBtn" disabled>
+        房东确认锁定
+      </button>
+
+      <div id="hostLockStatusMsg" class="hidden" style="margin-top:10px;font-weight:bold;color:var(--success);">
+        ✓ 房东已锁定
+      </div>
+
+      <hr />
+
       <h3>已加入的玩家：</h3>
       <div id="hostPlayerList"></div>
 
       <button id="revealBtn" style="background: var(--success); margin-top:20px;" disabled>
         结束猜测，揭晓答案！
       </button>
+
+      <div class="small-note">
+        所有人，包括房东，都锁定后才可以揭晓。
+      </div>
 
       <button id="resetBtn" style="background: var(--danger);">
         删除房间并重新开始
@@ -247,8 +272,10 @@
     let playerId = "";
     let myName = "";
     let selectedEmotion = "";
+    let hostSelectedEmotion = "";
     let isHost = false;
     let isLocked = false;
+    let hostLocked = false;
 
     const setupScreen = document.getElementById("setupScreen");
     const hostScreen = document.getElementById("hostScreen");
@@ -327,6 +354,7 @@
         });
 
         document.getElementById("hostRoomIdDisplay").innerText = roomId;
+        buildHostEmotionsGridUI();
         showScreen(hostScreen);
         listenToRoom();
       } catch (err) {
@@ -402,6 +430,19 @@
 
         if (isHost) {
           updateHostPlayerListUI(players);
+
+          if (players[playerId] && players[playerId].locked) {
+            hostLocked = true;
+            document.getElementById("hostLockBtn").disabled = true;
+            document.getElementById("hostLockStatusMsg").classList.remove("hidden");
+
+            document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(btn => {
+              if (!btn.classList.contains("selected")) {
+                btn.disabled = true;
+                btn.style.opacity = 0.5;
+              }
+            });
+          }
         }
 
         if (room.status === "revealed") {
@@ -415,6 +456,7 @@
       listContainer.innerHTML = "";
 
       let lockedCount = 0;
+      const totalPlayers = Object.keys(players).length;
 
       Object.values(players).forEach(p => {
         if (p.locked) lockedCount++;
@@ -432,8 +474,60 @@
         listContainer.appendChild(item);
       });
 
-      document.getElementById("revealBtn").disabled = lockedCount === 0;
+      document.getElementById("revealBtn").disabled =
+        totalPlayers === 0 || lockedCount < totalPlayers;
     }
+
+    function buildHostEmotionsGridUI() {
+      const grid = document.getElementById("hostEmotionsGrid");
+      grid.innerHTML = "";
+
+      emotionsList.forEach((emotion, index) => {
+        const btn = document.createElement("button");
+        btn.classList.add("emotion-btn");
+        btn.innerText = `${index + 1}. ${emotion}`;
+
+        btn.addEventListener("click", () => {
+          if (hostLocked) return;
+
+          document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(b => {
+            b.classList.remove("selected");
+          });
+
+          btn.classList.add("selected");
+          hostSelectedEmotion = emotion;
+          document.getElementById("hostLockBtn").disabled = false;
+        });
+
+        grid.appendChild(btn);
+      });
+    }
+
+    document.getElementById("hostLockBtn").addEventListener("click", async () => {
+      if (!hostSelectedEmotion || hostLocked) return;
+
+      try {
+        await update(ref(db, `rooms/${roomId}/players/${playerId}`), {
+          emotion: hostSelectedEmotion,
+          locked: true,
+          lockedAt: serverTimestamp()
+        });
+
+        hostLocked = true;
+        document.getElementById("hostLockBtn").disabled = true;
+        document.getElementById("hostLockStatusMsg").classList.remove("hidden");
+
+        document.querySelectorAll("#hostEmotionsGrid .emotion-btn").forEach(btn => {
+          if (!btn.classList.contains("selected")) {
+            btn.disabled = true;
+            btn.style.opacity = 0.5;
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        alert("房东锁定失败：" + err.message);
+      }
+    });
 
     function buildEmotionsGridUI() {
       const grid = document.getElementById("emotionsGrid");
@@ -447,7 +541,7 @@
         btn.addEventListener("click", () => {
           if (isLocked) return;
 
-          document.querySelectorAll(".emotion-btn").forEach(b => {
+          document.querySelectorAll("#emotionsGrid .emotion-btn").forEach(b => {
             b.classList.remove("selected");
           });
 
@@ -474,7 +568,7 @@
         document.getElementById("lockBtn").disabled = true;
         document.getElementById("lockStatusMsg").classList.remove("hidden");
 
-        document.querySelectorAll(".emotion-btn").forEach(btn => {
+        document.querySelectorAll("#emotionsGrid .emotion-btn").forEach(btn => {
           if (!btn.classList.contains("selected")) {
             btn.disabled = true;
             btn.style.opacity = 0.5;
