@@ -220,7 +220,6 @@
       get,
       onValue,
       remove,
-      onDisconnect,
       serverTimestamp,
       push
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
@@ -319,7 +318,8 @@
           name: myName + " (房东)",
           emotion: "",
           locked: false,
-          isHost: true
+          isHost: true,
+          joinedAt: serverTimestamp()
         });
 
         await update(ref(db, "rooms/" + roomId), {
@@ -375,10 +375,9 @@
           name: myName,
           emotion: "",
           locked: false,
-          isHost: false
+          isHost: false,
+          joinedAt: serverTimestamp()
         });
-
-        onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).remove();
 
         document.getElementById("playerGreeting").innerText = myName;
         buildEmotionsGridUI();
@@ -467,7 +466,8 @@
       try {
         await update(ref(db, `rooms/${roomId}/players/${playerId}`), {
           emotion: selectedEmotion,
-          locked: true
+          locked: true,
+          lockedAt: serverTimestamp()
         });
 
         isLocked = true;
