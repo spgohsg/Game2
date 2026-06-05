@@ -160,7 +160,7 @@
 
       <hr />
 
-      <button id="createRoomBtn">创建新房间 (我是房东)</button>
+      <button id="createRoomBtn">创建新房间 (我是主角)</button>
 
       <div style="margin: 10px 0; color: var(--gray); font-size: 14px;">
         — 或者 / OR —
@@ -178,15 +178,15 @@
 
       <hr />
 
-      <h3>房东请选择你的情绪卡：</h3>
+      <h3>主角请选择你的情绪卡：</h3>
       <div class="grid" id="hostEmotionsGrid"></div>
 
       <button id="hostLockBtn" disabled>
-        房东确认锁定
+        主角确认锁定
       </button>
 
       <div id="hostLockStatusMsg" class="hidden" style="margin-top:10px;font-weight:bold;color:var(--success);">
-        ✓ 房东已锁定
+        ✓ 主角已锁定
       </div>
 
       <hr />
@@ -199,7 +199,7 @@
       </button>
 
       <div class="small-note">
-        所有人，包括房东，都锁定后才可以揭晓。
+        所有人，包括主角，都锁定后才可以揭晓。
       </div>
 
       <button id="resetBtn" style="background: var(--danger);">
@@ -221,7 +221,7 @@
       </button>
 
       <div id="lockStatusMsg" style="margin-top:10px; font-weight:bold; color:var(--success);" class="hidden">
-        ✓ 已锁定！请等待房东揭晓。
+        ✓ 已锁定！请等待主角揭晓。
       </div>
     </div>
 
@@ -346,7 +346,7 @@
 
     document.getElementById("createRoomBtn").addEventListener("click", async () => {
       try {
-        myName = getPlayerName("房东");
+        myName = getPlayerName("主角");
         isHost = true;
         roomId = await createUniqueRoom();
 
@@ -361,7 +361,7 @@
         playerId = hostRef.key;
 
         await set(hostRef, {
-          name: myName + " (房东)",
+          name: myName + " (主角)",
           emotion: "",
           locked: false,
           isHost: true,
